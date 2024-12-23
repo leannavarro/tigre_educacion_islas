@@ -1,0 +1,203 @@
+---
+title: "islas tigre educacion"
+output: html_document
+date: "2024-12-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Carga de librerias
+```{r}
+library(pacman)
+p_load(tidyverse, leaflet, sf, htmlwidgets, readxl, openxlsx)
+```
+
+# Carga de datos
+```{r}
+datos <- radios.censales %>% 
+  filter(NOMDEPTO == "TIGRE")
+
+# Convertir la columna 'geometria' a un objeto espacial (WKT a sf)
+datos_sf <- st_as_sf(datos, wkt = "WKT", crs = 4326)
+
+str(datos_sf)
+```
+
+#Filtrado radio islas y visualizacion
+```{r}
+
+# Filtrar los datos espaciales
+datos_sf_filtrados <- datos_sf %>%
+  filter(
+    (fid >= 21000 & fid <= 23000 | fid == 15189) &  # Condición de rango o valor específico
+    !fid %in% c(2965, 21429, 22963, 21034, 21348, 22964, 22962,22965) # Exclusión de valores específicos
+  )
+
+
+
+# Crear un mapa con los radios censales delimitados
+leaflet(datos_sf) %>%
+  addTiles() %>%  # Agregar mapa base
+  addPolygons(
+    color = "blue",         # Color del borde de los radios
+    weight = 1,             # Grosor del borde
+    opacity = 0.8,          # Opacidad del borde
+    fillColor = "lightblue",# Color de relleno
+    fillOpacity = 0.4,      # Opacidad del relleno
+    popup = ~paste("ID:", fid, "<br>", "Nombre:", RADIO) # Información al hacer clic
+  ) %>%
+  addScaleBar(position = "bottomright") # Escala en el mapa
+
+
+# Crear un mapa con los radios censales delimitados
+leaflet(datos_sf_filtrados) %>%
+  addTiles() %>%  # Agregar mapa base
+  addPolygons(
+    color = "blue",         # Color del borde de los radios
+    weight = 1,             # Grosor del borde
+    opacity = 0.8,          # Opacidad del borde
+    fillColor = "lightblue",# Color de relleno
+    fillOpacity = 0.4,      # Opacidad del relleno
+    popup = ~paste("ID:", LINK, "<br>", "Nombre:", RADIO) # Información al hacer clic
+  ) %>%
+  addScaleBar(position = "bottomright") # Escala en el mapa
+
+
+write_csv2(datos_sf_filtrados, "radios islas.csv")
+```
+
+# Guardar mapa en html
+```{r}
+# Crear el mapa con los radios censales delimitados
+mapa <- leaflet(datos_sf_filtrados) %>%
+  addTiles() %>%  # Agregar mapa base
+  addPolygons(
+    color = "blue",         # Color del borde de los radios
+    weight = 1,             # Grosor del borde
+    opacity = 0.8,          # Opacidad del borde
+    fillColor = "lightblue",# Color de relleno
+    fillOpacity = 0.4,      # Opacidad del relleno
+    popup = ~paste("ID:", LINK, "<br>", "Nombre:", RADIO) # Información al hacer clic
+  ) %>%
+  addScaleBar(position = "bottomright") # Escala en el mapa
+
+# Exportar el mapa a un archivo HTML
+saveWidget(mapa, "mapa_radios_censales.html", selfcontained = TRUE)
+
+# Mensaje de confirmación
+cat("Mapa guardado como 'mapa_radios_censales.html'.")
+```
+## base INDEC Tigre
+```{r}
+indec <- read_xlsx("tigre completo.xlsx")
+
+str(indec)
+
+indec$LINK <- sub("^0+", "", indec$LINK)
+indec$LINK  <- as.numeric(indec$LINK )
+indec$fid  <- as.numeric(indec$fid )
+
+indec_filtrado <- indec %>% 
+  filter(Nivel_asistido %in% c("Sin instrucción", "Primario incompleto", "Primario completo", 
+  "EGB incompleto", "EGB completo", 
+  "Secundario incompleto", "Secundario completo", 
+  "Polimodal incompleto", "Polimodal completo")) %>% 
+  filter(LINK %in% datos_sf_filtrados$LINK) %>% 
+  select(-4,-6) %>% 
+  pivot_longer()
+
+# unique(indec_filtrado$Nivel_asistido)
+# 
+# # Vector de categorías
+# categorias <- c(
+#   "Sin instrucción", "Primario incompleto", "Primario completo", 
+#   "EGB incompleto", "EGB completo", 
+#   "Secundario incompleto", "Secundario completo", 
+#   "Polimodal incompleto", "Polimodal completo", 
+#   "Terciario no universitario incompleto", "Terciario no universitario completo", 
+#   "Universitario de grado incompleto", "Universitario de grado completo", 
+#   "Posgrado (especialización, maestría o doctorado) incompleto", 
+#   "Posgrado (especialización, maestría o doctorado) completo"
+# )
+
+# Convertir a factor ordenado
+#categorias_factor <- factor(categorias, levels = categorias, ordered = TRUE)
+
+
+# data_wide <- indec_filtrado %>%
+#   pivot_wider(
+#     names_from = c(Nivel_asistido), # Las columnas serán los niveles educativos
+#     values_from = c(Mujer, Varón), # Los valores vendrán de Mujer y Varón
+#     names_sep = "_" # Opcional: separador para distinguir Mujer y Varón en las columnas
+#   )
+# 
+# data_wide[is.na(data_wide)] <- 0
+
+
+datos_final_joineado <- datos_sf_filtrados %>% 
+  left_join(data_wide, by = "LINK") %>% 
+  select(-c(1, 4:10))
+
+str(datos_final_joineado)
+```
+
+# Mapa final
+```{r}
+# Asegurar que no haya valores NA en la columna LINK
+datos_final_joineado$LINK[is.na(datos_final_joineado$LINK)] <- "Sin datos"
+
+# Crear el popup manualmente, excluyendo explícitamente la columna WKT (geometría)
+datos_final_joineado$popup <- apply(datos_final_joineado, 1, function(row) {
+  paste0(
+    "<b>ID:</b> <a href='https://www.ejemplo.com/", row["LINK"], "' target='_blank'>", row["LINK"], "</a><br>",
+    paste(
+      paste0("<b>", names(datos_final_joineado)[4:21], ":</b> ", row[4:21]), # Excluir LINK y WKT
+      collapse = "<br>"
+    )
+  )
+})
+
+# Crear el mapa con el popup predefinido
+mapa <- leaflet(datos_final_joineado) %>%
+  addTiles() %>%
+  addPolygons(
+    color = "blue",         # Color del borde de los radios
+    weight = 1,             # Grosor del borde
+    opacity = 0.8,          # Opacidad del borde
+    fillColor = "lightblue",# Color de relleno
+    fillOpacity = 0.4,      # Opacidad del relleno
+    popup = ~popup          # Usar el popup predefinido
+  ) %>%
+  addScaleBar(position = "bottomright") # Escala en el mapa
+
+# Mostrar el mapa
+mapa
+
+```
+## Guardamos mapa y base
+```{r}
+
+# Exportar el mapa a un archivo HTML
+saveWidget(mapa, "mapa_radios_censales.html", selfcontained = TRUE)
+
+# Mensaje de confirmación
+cat("Mapa guardado como 'mapa_radios_censales.html'.")
+
+datos_final_joineado_guardar <- datos_final_joineado
+
+datos_final_joineado_guardar$WKT <- NULL
+datos_final_joineado_guardar <- datos_final_joineado_guardar %>% 
+  select(-22)
+
+
+
+write.csv2(datos_final_joineado_guardar, "tigre_islas.csv", row.names = F, 
+           fileEncoding =  "UTF-8")
+
+write.xlsx(datos_final_joineado_guardar, file = "datos_final_joineado.xlsx", overwrite = TRUE)
+
+
+```
+
